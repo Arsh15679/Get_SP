@@ -1,0 +1,117 @@
+﻿@page "/download-files"
+@using System.Text.Json
+@using Blazored.Toast
+@using Blazored.Toast.Services
+@inject IToastService toastService
+@inject IJSRuntime js
+
+<h3>Get Stored Procedures</h3>
+
+<div>
+
+    <div class="card">
+        <div class="card-body">
+            @*<h5 class="card-title">Card Title</h5>*@
+            <div class="form-group">
+                <label for="nameInput">Start Date:</label>
+                <input type="date" class="form-control" id="nameInput" @bind="startDate">
+            </div>
+            <br />
+
+            <div class="form-group">
+                <label for="nameInput">End Date:</label>
+                <input type="date" class="form-control" id="nameInput" @bind="endDate">
+            </div>
+            <br />
+            <br />
+            <button @onclick="DownloadFiles" class="btn btn-primary">Download Files</button>
+
+        </div>
+    </div>
+
+</div>
+
+@code {
+    private HttpClient httpClient;
+    private DateTime? startDate;
+    private DateTime? endDate;
+
+
+    // Inject IConfiguration to access app settings
+    [Inject]
+    private IConfiguration Configuration { get; set; }
+
+    protected override void OnInitialized()
+    {
+        // Initialize the httpClient here
+        httpClient = new HttpClient();
+    }
+
+    private string ApiBaseUrl => Configuration["ApiSettings:BaseUrl"];
+
+
+    private async Task DownloadFiles()
+    {
+        if (startDate == null || endDate == null)
+        {
+            Alert("Both Fields are mandatory");
+            return;
+        }
+
+        var queryParameters = $"?startDate={startDate.Value:s}&endDate={endDate.Value:s}";
+        var response = await httpClient.GetAsync(ApiBaseUrl + "api/SP/GetStoredProceduresBetweenDates" + queryParameters);
+        if (response.IsSuccessStatusCode)
+        {
+            var content = await response.Content.ReadAsStringAsync();
+            var apiResponse = JsonSerializer.Deserialize<ApiResponse[]>(content);
+            int a = apiResponse.Count();
+            if (a <= 0)
+            {
+                Alert("No Stored Procedure changes in between the selected dates");
+            }
+            else
+            {
+                await SaveFilesToFolder(apiResponse);
+                Alert("File Saved... Check 'SP' Folder in Downloads Path");
+            }
+
+        }
+        else
+        {
+            Alert("Error While Saving");
+            // Handle API call failure
+        }
+    }
+
+    private async Task SaveFilesToFolder(ApiResponse[] apiResponse)
+    {
+        string downloadsPath = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) + "\\Downloads";
+
+        string folderName = "SP";
+
+        string folderPath = Path.Combine(downloadsPath, folderName);
+
+        if (!Directory.Exists(folderPath))
+        {
+            Directory.CreateDirectory(folderPath);
+        }
+        foreach (var item in apiResponse)
+        {
+            string filePath = Path.Combine(folderPath, $"{item.name}.sql");
+            await File.WriteAllTextAsync(filePath, item.text);
+        }
+    }
+
+    private class ApiResponse
+    {
+        public string name { get; set; }
+        public string text { get; set; }
+    }
+
+    public void Alert(string message)
+    {
+        //js.InvokeVoidAsync("alert", "Warning!");
+        js.InvokeAsync<object>("alert", message);
+    }
+
+}
